@@ -2,6 +2,7 @@
 void Server::handleCommand(Client *client, const std::string &line)
 {
 
+    // ❌🚫👋🟢🧲 for designing the masseges
     std::vector<std::string> tokens = split(line, ' ');
     if (tokens.empty())
         return;
@@ -585,4 +586,3 @@ void Server::handlePrivateMessage(Client *client, const std::string &line, const
         send(client->getFd(), errMsg.c_str(), errMsg.length(), 0);
     }
 }
-// ❌🚫👋🟢🧲
