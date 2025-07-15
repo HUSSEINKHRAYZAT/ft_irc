@@ -210,6 +210,12 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &tokens)
     if (tokens.size() < 2)
         return;
     std::string channelName = tokens[1];
+    if (channelName.size() < 2)
+    {
+        std::string err = "🚫 479 " + channelName + " :Illegal channel name\r\n";
+        send(client->getFd(), err.c_str(), err.length(), 0);
+        return;
+    }
     if (_channels.find(channelName) == _channels.end())
     {
         _channels[channelName] = new Channel(channelName);
@@ -246,73 +252,69 @@ void Server::handleJoin(Client *client, const std::vector<std::string> &tokens)
         send((*it)->getFd(), joinMsg.c_str(), joinMsg.length(), 0);
 }
 
-void Server::handleKick(Client *client, const std::vector<std::string> &tokens)
-{
-    if (tokens.size() < 3)
+void Server::handleKick(Client *client, const std::vector<std::string> &tokens) {
+    if (tokens.size() < 3) {
+        std::string err2 = ":no_entry_sign:Usage: kick <channel> <user1> [user2] [user3]...\n";
+        send(client->getFd(), err2.c_str(), err2.length(), 0);
         return;
-
-    std::string chanName = tokens[1], targetNick = tokens[2];
-
-    if (_channels.find(chanName) == _channels.end())
-        return;
-
+    }
+    std::string chanName = tokens[1];
+    if (_channels.find(chanName) == _channels.end()) return;
     Channel *channel = _channels[chanName];
-
-    // ✅ Allow only operators or self-kick
-    if (!channel->isOperator(client) && client->getNickname() != targetNick)
-    {
-        std::string err = "🚫 482 " + chanName + " :You're not channel operator\r\n";
+    // :white_check_mark: Allow only operators to kick others
+    if (!channel->isOperator(client)) {
+        std::string err = ":no_entry_sign: 482 " + chanName + " :You're not channel operator\r\n";
         send(client->getFd(), err.c_str(), err.length(), 0);
         return;
     }
-
-    // Find the target client
-    Client *target = NULL;
-    for (std::map<int, Client *>::iterator it = _clients.begin(); it != _clients.end(); ++it)
-    {
-        if (it->second->getNickname() == targetNick)
-        {
-            target = it->second;
-            break;
+    // Process each user to kick (starting from tokens[2])
+    for (size_t i = 2; i < tokens.size(); ++i) {
+        std::string targetNick = tokens[i];
+        // Find the target client
+        Client *target = NULL;
+        for (std::map<int, Client *>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
+            if (it->second->getNickname() == targetNick) {
+                target = it->second;
+                break;
+            }
         }
+        // Check if target exists and is in the channel
+        if (!target || !channel->hasClient(target)) {
+            std::string err = ":x: 441 " + targetNick + " " + chanName + " :They aren't on that channel\r\n";
+            send(client->getFd(), err.c_str(), err.length(), 0);
+            continue; // Skip this user but continue with others
+        }
+        // Don't allow kicking yourself (optional - remove if you want to allow self-kick)
+        if (target == client) {
+            std::string err = ":no_entry_sign: You cannot kick yourself\r\n";
+            send(client->getFd(), err.c_str(), err.length(), 0);
+            continue;
+        }
+        // Remove target from channel
+        channel->removeClient(target);
+        channel->removeOperator(target);
+        // Notify all clients about the kick
+        std::string kickMsg = ":" + client->getNickname() + " KICK " + chanName + " " + targetNick + " :bye\r\n";
+        for (std::set<Client *>::const_iterator it = channel->getClients().begin(); it != channel->getClients().end(); ++it) {
+            send((*it)->getFd(), kickMsg.c_str(), kickMsg.length(), 0);
+        }
+        send(target->getFd(), kickMsg.c_str(), kickMsg.length(), 0);
     }
-
-    if (!target || !channel->hasClient(target))
-    {
-        std::string err = "❌ 441 " + targetNick + " " + chanName + " :They aren't on that channel\r\n";
-        send(client->getFd(), err.c_str(), err.length(), 0);
-        return;
-    }
-
-    // Remove target from channel
-    channel->removeClient(target);
-    channel->removeOperator(target);
-
-    // Notify all clients
-    std::string kickMsg = ":" + client->getNickname() + " KICK " + chanName + " " + targetNick + " :bye\r\n";
-    for (std::set<Client *>::const_iterator it = channel->getClients().begin(); it != channel->getClients().end(); ++it)
-        send((*it)->getFd(), kickMsg.c_str(), kickMsg.length(), 0);
-    send(target->getFd(), kickMsg.c_str(), kickMsg.length(), 0);
-
-    // ✅ Promote a new operator if needed
-    if (!channel->hasOperators() && !channel->getClients().empty())
-    {
+    // :white_check_mark: Promote a new operator if needed (only once after all kicks)
+    if (!channel->hasOperators() && !channel->getClients().empty()) {
         Client *newOp = *channel->getClients().begin();
         channel->addOperator(newOp);
-
         std::string opMsg = ":" + newOp->getNickname() + " MODE " + chanName + " +o " + newOp->getNickname() + "\r\n";
-        for (std::set<Client *>::const_iterator it = channel->getClients().begin(); it != channel->getClients().end(); ++it)
+        for (std::set<Client *>::const_iterator it = channel->getClients().begin(); it != channel->getClients().end(); ++it) {
             send((*it)->getFd(), opMsg.c_str(), opMsg.length(), 0);
+        }
     }
-
-    // 🧹 Clean up channel if it's now empty
-    if (channel->getClients().empty())
-    {
+    // :broom: Clean up channel if it's now empty
+    if (channel->getClients().empty()) {
         delete channel;
         _channels.erase(chanName);
     }
 }
-
 void Server::handleTopic(Client *client, const std::string &line, const std::vector<std::string> &tokens)
 {
     if (tokens.size() < 2)

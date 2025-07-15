@@ -40,5 +40,6 @@
 #include <arpa/inet.h>   // for inet_pton
 #include <netinet/in.h>  // for sockaddr_in
 #include <fcntl.h>       // for fcntl  
+#include <termios.h>
 
 #endif
